@@ -8,7 +8,7 @@ class UserModel {
   final Map<String, CartItemModel> cart;
 
   UserModel({required this.id, required this.username, required this.name})
-      : cart = {};
+    : cart = {};
 
   UserModel.withCart({
     required this.id,
