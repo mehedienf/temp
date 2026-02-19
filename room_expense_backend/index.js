@@ -106,9 +106,9 @@ app.post('/rooms', async (req, res) => {
       if (rows.length === 0) break;
     }
 
-    await pool.execute('INSERT INTO rooms (id, code, name) VALUES (?, ?, ?)', [id, code, name.trim()]);
+    await pool.execute('INSERT INTO rooms (id, code, name, created_by) VALUES (?, ?, ?, ?)', [id, code, name.trim(), userId]);
     await pool.execute('INSERT INTO room_members (room_id, user_id) VALUES (?, ?)', [id, userId]);
-    res.status(201).json({ id, code, name: name.trim() });
+    res.status(201).json({ id, code, name: name.trim(), createdBy: userId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -129,7 +129,7 @@ app.post('/rooms/join', async (req, res) => {
       'INSERT IGNORE INTO room_members (room_id, user_id) VALUES (?, ?)',
       [room.id, userId]
     );
-    res.json({ id: room.id, code: room.code, name: room.name });
+    res.json({ id: room.id, code: room.code, name: room.name, createdBy: room.created_by || null });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -183,6 +183,7 @@ app.get('/rooms/:roomId', async (req, res) => {
       id: room.id,
       code: room.code,
       name: room.name,
+      createdBy: room.created_by || null,
       items: items.map((i) => ({
         id: i.id,
         name: i.name,
@@ -190,6 +191,49 @@ app.get('/rooms/:roomId', async (req, res) => {
       })),
       members: membersWithCart,
     });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /rooms/:roomId  => delete room (admin only)
+app.delete('/rooms/:roomId', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+
+    const [rooms] = await pool.execute('SELECT created_by FROM rooms WHERE id = ?', [roomId]);
+    if (rooms.length === 0) return res.status(404).json({ error: 'Room not found' });
+    if (rooms[0].created_by !== userId)
+      return res.status(403).json({ error: 'Only the room admin can delete this room' });
+
+    await pool.execute('DELETE FROM rooms WHERE id = ?', [roomId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /rooms/:roomId/members/:userId  => leave room
+app.delete('/rooms/:roomId/members/:userId', async (req, res) => {
+  try {
+    const { roomId, userId } = req.params;
+    // Prevent admin from leaving without deleting (keep room alive)
+    const [rooms] = await pool.execute('SELECT created_by FROM rooms WHERE id = ?', [roomId]);
+    if (rooms.length === 0) return res.status(404).json({ error: 'Room not found' });
+    if (rooms[0].created_by === userId)
+      return res.status(400).json({ error: 'Admin cannot leave. Delete the room instead.' });
+
+    await pool.execute('DELETE FROM room_members WHERE room_id = ? AND user_id = ?', [roomId, userId]);
+    // Also clean up their cart items for this room
+    await pool.execute(
+      'DELETE ci FROM cart_items ci JOIN items i ON i.id = ci.item_id WHERE ci.user_id = ? AND i.room_id = ?',
+      [userId, roomId]
+    );
+    res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

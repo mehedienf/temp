@@ -5,19 +5,25 @@ class RoomModel {
   final String id;
   final String code;
   final String name;
+  final String? createdBy;
   // userId -> UserModel
   final Map<String, UserModel> members;
   // itemId -> ItemModel
   final Map<String, ItemModel> items;
 
-  RoomModel({required this.id, required this.code, required this.name})
-    : members = {},
-      items = {};
+  RoomModel({
+    required this.id,
+    required this.code,
+    required this.name,
+    this.createdBy,
+  }) : members = {},
+       items = {};
 
   RoomModel.full({
     required this.id,
     required this.code,
     required this.name,
+    this.createdBy,
     required this.members,
     required this.items,
   });
@@ -37,6 +43,7 @@ class RoomModel {
       id: json['id'] as String,
       code: json['code'] as String,
       name: json['name'] as String,
+      createdBy: json['createdBy'] as String?,
       items: itemsMap,
       members: membersMap,
     );

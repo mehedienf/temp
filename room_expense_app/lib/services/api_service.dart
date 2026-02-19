@@ -35,7 +35,11 @@ class ApiService {
     final res = await _client.post(
       Uri.parse('$_base/auth/signup'),
       headers: _headers,
-      body: jsonEncode({'username': username, 'name': name, 'password': password}),
+      body: jsonEncode({
+        'username': username,
+        'name': name,
+        'password': password,
+      }),
     );
     if (res.statusCode != 201) _throw(res);
     final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -62,11 +66,13 @@ class ApiService {
     if (res.statusCode != 200) _throw(res);
     final list = jsonDecode(res.body) as List<dynamic>;
     return list
-        .map((r) => RoomModel.fromJson({
-              ...r as Map<String, dynamic>,
-              'items': [],
-              'members': [],
-            }))
+        .map(
+          (r) => RoomModel.fromJson({
+            ...r as Map<String, dynamic>,
+            'items': [],
+            'members': [],
+          }),
+        )
         .toList();
   }
 
@@ -95,6 +101,24 @@ class ApiService {
     if (res.statusCode != 200) _throw(res);
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     return RoomModel.fromJson({...data, 'items': [], 'members': []});
+  }
+
+  /// Leave a room.
+  static Future<void> leaveRoom(String roomId, String userId) async {
+    final res = await _client.delete(
+      Uri.parse('$_base/rooms/$roomId/members/$userId'),
+    );
+    if (res.statusCode != 200) _throw(res);
+  }
+
+  /// Delete a room (admin only).
+  static Future<void> deleteRoom(String roomId, String userId) async {
+    final req = http.Request('DELETE', Uri.parse('$_base/rooms/$roomId'));
+    req.headers.addAll(_headers);
+    req.body = jsonEncode({'userId': userId});
+    final streamedRes = await _client.send(req);
+    final res = await http.Response.fromStream(streamedRes);
+    if (res.statusCode != 200) _throw(res);
   }
 
   /// Fetches full room data (members + items + carts).

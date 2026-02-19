@@ -19,8 +19,14 @@ CREATE TABLE IF NOT EXISTS rooms (
   id         VARCHAR(36)  PRIMARY KEY,
   code       VARCHAR(6)   UNIQUE NOT NULL,
   name       VARCHAR(100) NOT NULL,
-  created_at DATETIME     DEFAULT CURRENT_TIMESTAMP
+  created_by VARCHAR(36)  DEFAULT NULL,
+  created_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- Migration: run if table already exists
+-- ALTER TABLE rooms ADD COLUMN created_by VARCHAR(36) DEFAULT NULL AFTER name;
+-- ALTER TABLE rooms ADD CONSTRAINT fk_rooms_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS room_members (
   room_id    VARCHAR(36) NOT NULL,

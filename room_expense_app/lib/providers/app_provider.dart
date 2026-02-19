@@ -146,9 +146,37 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  void leaveRoom() {
+  void clearRoom() {
     _currentRoom = null;
     notifyListeners();
+  }
+
+  Future<void> leaveRoom() async {
+    _setLoading(true);
+    try {
+      await ApiService.leaveRoom(_currentRoom!.id, _currentUser!.id);
+      _currentRoom = null;
+      await loadUserRooms();
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      rethrow;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<void> deleteRoom() async {
+    _setLoading(true);
+    try {
+      await ApiService.deleteRoom(_currentRoom!.id, _currentUser!.id);
+      _currentRoom = null;
+      await loadUserRooms();
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      rethrow;
+    } finally {
+      _setLoading(false);
+    }
   }
 
   // ─── Items ─────────────────────────────────────────────────────────────────
