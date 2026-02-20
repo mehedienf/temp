@@ -103,11 +103,21 @@ class ApiService {
     return RoomModel.fromJson({...data, 'items': [], 'members': []});
   }
 
-  /// Leave a room.
-  static Future<void> leaveRoom(String roomId, String userId) async {
-    final res = await _client.delete(
+  /// Leave a room. Pass [requesterId] = caller's userId.
+  /// If requesterId != userId, backend treats it as an admin removal (hard delete).
+  static Future<void> leaveRoom(
+    String roomId,
+    String userId, {
+    String? requesterId,
+  }) async {
+    final req = http.Request(
+      'DELETE',
       Uri.parse('$_base/rooms/$roomId/members/$userId'),
     );
+    req.headers.addAll(_headers);
+    req.body = jsonEncode({'requesterId': requesterId ?? userId});
+    final streamed = await _client.send(req);
+    final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) _throw(res);
   }
 
@@ -171,6 +181,168 @@ class ApiService {
     final res = await _client.delete(
       Uri.parse('$_base/users/$userId/cart/$itemId'),
     );
+    if (res.statusCode != 200) _throw(res);
+  }
+
+  // ── Session ───────────────────────────────────────────────────────────────
+
+  /// Toggle confirmed state (admin only). Returns new isConfirmed value.
+  static Future<bool> lockRoom(String roomId, String userId) async {
+    final res = await _client.patch(
+      Uri.parse('$_base/rooms/$roomId/confirm'),
+      headers: _headers,
+      body: jsonEncode({'userId': userId}),
+    );
+    if (res.statusCode != 200) _throw(res);
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    return data['isConfirmed'] as bool;
+  }
+
+  /// Save session summary to DB, clear all carts, unconfirm (admin only).
+  static Future<void> newSession(String roomId, String userId) async {
+    final res = await _client.post(
+      Uri.parse('$_base/rooms/$roomId/new-session'),
+      headers: _headers,
+      body: jsonEncode({'userId': userId}),
+    );
+    if (res.statusCode != 200) _throw(res);
+  }
+
+  /// Returns the list of past session summaries for a room.
+  static Future<List<Map<String, dynamic>>> getSessions(String roomId) async {
+    final res = await _client.get(Uri.parse('$_base/rooms/$roomId/sessions'));
+    if (res.statusCode != 200) _throw(res);
+    return (jsonDecode(res.body) as List<dynamic>)
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+  }
+
+  // ── Finance ───────────────────────────────────────────────────────────────
+
+  /// Returns per-member balance summary (expenses, deposits, balance).
+  static Future<List<Map<String, dynamic>>> getBalance(String roomId) async {
+    final res = await _client.get(Uri.parse('$_base/rooms/$roomId/balance'));
+    if (res.statusCode != 200) _throw(res);
+    return (jsonDecode(res.body) as List<dynamic>)
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+  }
+
+  /// Record a deposit for a member.
+  static Future<void> addDeposit(
+    String roomId,
+    String userId,
+    String targetUserId,
+    double amount,
+    String? note,
+  ) async {
+    final res = await _client.post(
+      Uri.parse('$_base/rooms/$roomId/deposits'),
+      headers: _headers,
+      body: jsonEncode({
+        'userId': userId,
+        'targetUserId': targetUserId,
+        'amount': amount,
+        'note': note,
+      }),
+    );
+    if (res.statusCode != 201) _throw(res);
+  }
+
+  /// Add a split expense — admin only. Splits among [memberIds] (or all active members if omitted).
+  static Future<void> addSplitExpense(
+    String roomId,
+    String userId,
+    String itemName,
+    double totalAmount, {
+    List<String>? memberIds,
+  }) async {
+    final res = await _client.post(
+      Uri.parse('$_base/rooms/$roomId/split-expense'),
+      headers: _headers,
+      body: jsonEncode({
+        'userId': userId,
+        'itemName': itemName,
+        'totalAmount': totalAmount,
+        // ignore: use_null_aware_elements
+        if (memberIds != null) 'memberIds': memberIds,
+      }),
+    );
+    if (res.statusCode != 201) _throw(res);
+  }
+
+  /// Returns flat deposit + split-expense history for the room.
+  static Future<Map<String, dynamic>> getFinanceHistory(String roomId) async {
+    final res = await _client.get(
+      Uri.parse('$_base/rooms/$roomId/finance-history'),
+    );
+    if (res.statusCode != 200) _throw(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Admin adds a member to the room by their username.
+  static Future<Map<String, dynamic>> addMember(
+    String roomId,
+    String adminId,
+    String username,
+  ) async {
+    final res = await _client.post(
+      Uri.parse('$_base/rooms/$roomId/members'),
+      headers: _headers,
+      body: jsonEncode({'adminId': adminId, 'username': username}),
+    );
+    if (res.statusCode != 201) _throw(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Admin deletes a deposit by ID.
+  static Future<void> deleteDeposit(
+    String roomId,
+    String adminId,
+    String depositId,
+  ) async {
+    final req = http.Request(
+      'DELETE',
+      Uri.parse('$_base/rooms/$roomId/deposits/$depositId'),
+    );
+    req.headers.addAll(_headers);
+    req.body = jsonEncode({'adminId': adminId});
+    final streamed = await _client.send(req);
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200) _throw(res);
+  }
+
+  /// Admin deletes a split expense by ID.
+  static Future<void> deleteSplitExpense(
+    String roomId,
+    String adminId,
+    String expenseId,
+  ) async {
+    final req = http.Request(
+      'DELETE',
+      Uri.parse('$_base/rooms/$roomId/split-expenses/$expenseId'),
+    );
+    req.headers.addAll(_headers);
+    req.body = jsonEncode({'adminId': adminId});
+    final streamed = await _client.send(req);
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200) _throw(res);
+  }
+
+  /// Admin deletes a session summary by ID.
+  static Future<void> deleteSession(
+    String roomId,
+    String adminId,
+    String sessionId,
+  ) async {
+    final req = http.Request(
+      'DELETE',
+      Uri.parse('$_base/rooms/$roomId/sessions/$sessionId'),
+    );
+    req.headers.addAll(_headers);
+    req.body = jsonEncode({'adminId': adminId});
+    final streamed = await _client.send(req);
+    final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) _throw(res);
   }
 }

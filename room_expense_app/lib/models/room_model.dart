@@ -6,6 +6,7 @@ class RoomModel {
   final String code;
   final String name;
   final String? createdBy;
+  final bool isConfirmed;
   // userId -> UserModel
   final Map<String, UserModel> members;
   // itemId -> ItemModel
@@ -16,6 +17,7 @@ class RoomModel {
     required this.code,
     required this.name,
     this.createdBy,
+    this.isConfirmed = false,
   }) : members = {},
        items = {};
 
@@ -24,6 +26,7 @@ class RoomModel {
     required this.code,
     required this.name,
     this.createdBy,
+    this.isConfirmed = false,
     required this.members,
     required this.items,
   });
@@ -44,6 +47,7 @@ class RoomModel {
       code: json['code'] as String,
       name: json['name'] as String,
       createdBy: json['createdBy'] as String?,
+      isConfirmed: json['isConfirmed'] == true,
       items: itemsMap,
       members: membersMap,
     );

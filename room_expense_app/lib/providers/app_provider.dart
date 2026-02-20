@@ -49,7 +49,11 @@ class AppProvider extends ChangeNotifier {
   Future<void> signup(String username, String name, String password) async {
     _setLoading(true);
     try {
-      _currentUser = await ApiService.signup(username.trim(), name.trim(), password);
+      _currentUser = await ApiService.signup(
+        username.trim(),
+        name.trim(),
+        password,
+      );
       _userRooms = [];
       notifyListeners();
     } catch (e) {
@@ -154,7 +158,11 @@ class AppProvider extends ChangeNotifier {
   Future<void> leaveRoom() async {
     _setLoading(true);
     try {
-      await ApiService.leaveRoom(_currentRoom!.id, _currentUser!.id);
+      await ApiService.leaveRoom(
+        _currentRoom!.id,
+        _currentUser!.id,
+        requesterId: _currentUser!.id,
+      );
       _currentRoom = null;
       await loadUserRooms();
     } catch (e) {
@@ -243,6 +251,53 @@ class AppProvider extends ChangeNotifier {
 
   int cartQuantityOf(String itemId) {
     return _currentUser!.cart[itemId]?.quantity ?? 0;
+  }
+
+  int cartQuantityOfUser(String userId, String itemId) {
+    return _currentRoom?.members[userId]?.cart[itemId]?.quantity ?? 0;
+  }
+
+  // ─── Session (Confirm / New) ───────────────────────────────────────────────
+
+  Future<void> lockRoom() async {
+    _setLoading(true);
+    try {
+      await ApiService.lockRoom(_currentRoom!.id, _currentUser!.id);
+      await _refreshRoom();
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      rethrow;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<void> newSession() async {
+    _setLoading(true);
+    try {
+      await ApiService.newSession(_currentRoom!.id, _currentUser!.id);
+      await _refreshRoom();
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      rethrow;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  /// Admin adds an item to a specific user's cart.
+  Future<void> addToCartForUser(
+    String targetUserId,
+    String itemId,
+    int quantity,
+  ) async {
+    try {
+      await ApiService.updateCart(targetUserId, itemId, quantity);
+      await _refreshRoom();
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      rethrow;
+    }
   }
 
   // Poll room data (call from RoomScreen when tab changes to Summary)
