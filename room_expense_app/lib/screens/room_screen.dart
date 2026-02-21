@@ -32,10 +32,6 @@ class _RoomScreenState extends State<RoomScreen>
         context.read<AppProvider>().refreshRoom();
       }
     });
-    // Auto-refresh room data every 10 seconds
-    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (mounted) context.read<AppProvider>().refreshRoom();
-    });
   }
 
   @override
@@ -1508,10 +1504,7 @@ class _FinanceTabState extends State<_FinanceTab> {
   void initState() {
     super.initState();
     _loadBalance();
-    // Auto-refresh balance every 10 seconds
-    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      _loadBalance();
-    });
+    // Auto-refresh disabled: periodic balance polling removed
   }
 
   @override
@@ -1555,6 +1548,10 @@ class _FinanceTabState extends State<_FinanceTab> {
         .toList();
     // All active members pre-selected
     final selectedIds = <String>{...activeMembers.map((m) => m.id)};
+    // Default payer is current user
+    String? selectedPayerId = provider.currentUser!.id;
+    // Whether to record an explicit deposit to the payer for this split
+    bool recordPayment = true;
 
     showDialog<void>(
       context: context,
@@ -1603,34 +1600,67 @@ class _FinanceTabState extends State<_FinanceTab> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    // Member checkboxes
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: Theme.of(ctx).colorScheme.outlineVariant,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
+                    // Paid By dropdown
+                    InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Paid By',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                       ),
-                      constraints: const BoxConstraints(maxHeight: 200),
-                      child: ListView(
-                        shrinkWrap: true,
-                        padding: EdgeInsets.zero,
-                        children: activeMembers.map((m) {
-                          return CheckboxListTile(
-                            dense: true,
-                            title: Text(m.name, style: const TextStyle(fontSize: 14)),
-                            value: selectedIds.contains(m.id),
-                            onChanged: (checked) => setS(() {
-                              if (checked == true) {
-                                selectedIds.add(m.id);
-                              } else {
-                                selectedIds.remove(m.id);
-                              }
-                            }),
-                            controlAffinity: ListTileControlAffinity.leading,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                          );
-                        }).toList(),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: selectedPayerId,
+                          isExpanded: true,
+                          items: activeMembers.map((m) {
+                            return DropdownMenuItem(
+                              value: m.id,
+                              child: Text(m.name),
+                            );
+                          }).toList(),
+                          onChanged: (v) => setS(() => selectedPayerId = v),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Optionally record a payment (deposit) to the selected payer
+                    CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Record deposit to payer'),
+                      value: recordPayment,
+                      onChanged: (v) => setS(() => recordPayment = v ?? false),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    const SizedBox(height: 12),
+                    // Member checkboxes
+                    InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Split to',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      child: Container(
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        child: ListView(
+                          shrinkWrap: true,
+                          padding: EdgeInsets.zero,
+                          children: activeMembers.map((m) {
+                            return CheckboxListTile(
+                              dense: true,
+                              title: Text(m.name, style: const TextStyle(fontSize: 14)),
+                              value: selectedIds.contains(m.id),
+                              onChanged: (checked) => setS(() {
+                                if (checked == true) {
+                                  selectedIds.add(m.id);
+                                } else {
+                                  selectedIds.remove(m.id);
+                                }
+                              }),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                            );
+                          }).toList(),
+                        ),
                       ),
                     ),
                     if (totalAmount > 0 && count > 0) ...[
@@ -1666,36 +1696,55 @@ class _FinanceTabState extends State<_FinanceTab> {
                 child: const Text('Cancel'),
               ),
               FilledButton(
-                onPressed: selectedIds.isEmpty ? null : () async {
-                  if (!formKey.currentState!.validate()) return;
-                  Navigator.pop(ctx);
-                  try {
-                    await ApiService.addSplitExpense(
-                      provider.currentRoom!.id,
-                      provider.currentUser!.id,
-                      nameCtrl.text.trim(),
-                      double.parse(amountCtrl.text),
-                      memberIds: selectedIds.toList(),
-                    );
-                    await _loadBalance();
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Split expense added!')),
-                      );
-                    }
-                  } catch (e) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            e.toString().replaceFirst('Exception: ', ''),
-                          ),
-                          backgroundColor: Theme.of(context).colorScheme.error,
-                        ),
-                      );
-                    }
-                  }
-                },
+                onPressed: (selectedIds.isEmpty || selectedPayerId == null)
+                    ? null
+                    : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        Navigator.pop(ctx);
+                        try {
+                          // Optionally record deposit from admin (currentUser) to the selected payer
+                          if (recordPayment) {
+                            await ApiService.addDeposit(
+                              provider.currentRoom!.id,
+                              provider.currentUser!.id,
+                              selectedPayerId!,
+                              double.parse(amountCtrl.text),
+                              nameCtrl.text.trim(),
+                            );
+                          }
+
+                          // Then create the split expense
+                          await ApiService.addSplitExpense(
+                            provider.currentRoom!.id,
+                            provider.currentUser!.id,
+                            nameCtrl.text.trim(),
+                            double.parse(amountCtrl.text),
+                            memberIds: selectedIds.toList(),
+                          );
+
+                          await _loadBalance();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(recordPayment
+                                    ? 'Split expense added; payment recorded.'
+                                    : 'Split expense added.'),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  e.toString().replaceFirst('Exception: ', ''),
+                                ),
+                                backgroundColor: Theme.of(context).colorScheme.error,
+                              ),
+                            );
+                          }
+                        }
+                      },
                 child: const Text('Add'),
               ),
             ],
@@ -1899,6 +1948,76 @@ class _FinanceTabState extends State<_FinanceTab> {
             ],
           ),
         ),
+        // Totals summary for all members: Dena (total expense), Pawna (total deposited), Balance (net)
+        if (_balance.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Total Summary',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Expense (${_balance.expand<dynamic>((b) => (b['splitExpenses'] as List? ?? [])).map((e) => e['splitExpenseId']).toSet().length + _balance.expand<dynamic>((b) => (b['cartExpenses'] as List? ?? [])).length})', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                          const SizedBox(height: 6),
+                          Text(
+                            '৳${((_balance.fold<double>(0.0, (s, b) => s + ((b['totalExpense'] as num?)?.toDouble() ?? 0.0)) * 100).round() / 100).toStringAsFixed(2)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red),
+                          ),
+                          const SizedBox(height: 4),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Text('Deposit (${_balance.fold<int>(0, (s, b) => s + (((b['deposits'] as List?)?.length) ?? 0))})', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                          const SizedBox(height: 6),
+                          Text(
+                            '৳${((_balance.fold<double>(0.0, (s, b) => s + ((b['totalDeposited'] as num?)?.toDouble() ?? 0.0)) * 100).round() / 100).toStringAsFixed(2)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue),
+                          ),
+                          const SizedBox(height: 4),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text('Balance', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                          const SizedBox(height: 6),
+                          Text(
+                            '৳${((_balance.fold<double>(0.0, (s, b) => s + ((b['balance'] as num?)?.toDouble() ?? 0.0)) * 100).round() / 100).toStringAsFixed(2)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         Expanded(
           child: _balance.isEmpty
               ? const Center(
@@ -2244,15 +2363,14 @@ class _MiniStatChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final display = showSign && value < 0
-        ? '-৳${value.abs().toStringAsFixed(0)}'
-        : '৳${value.abs().toStringAsFixed(0)}';
+        ? '-৳${value.abs().toStringAsFixed(2)}'
+        : '৳${value.abs().toStringAsFixed(2)}';
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

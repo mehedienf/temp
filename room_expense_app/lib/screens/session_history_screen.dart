@@ -229,13 +229,26 @@ class _SessionHistoryScreenState extends State<SessionHistoryScreen>
       padding: const EdgeInsets.all(16),
       itemCount: _splitExpenses.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (ctx, i) => _SplitExpenseHistoryCard(
-        expense: _splitExpenses[i],
-        isAdmin: widget.isAdmin,
-        adminId: widget.adminId,
-        roomId: widget.roomId,
-        onDeleted: _load,
-      ),
+      itemBuilder: (ctx, i) {
+        final exp = _splitExpenses[i];
+        // Try to find a matching deposit: same amount and note equal to itemName
+        String? payerName;
+        final expName = exp['itemName'] as String? ?? '';
+        final expAmount = (exp['totalAmount'] as num?)?.toDouble() ?? 0.0;
+        final match = _deposits.firstWhere(
+          (d) => (d['note'] as String? ?? '') == expName && ((d['amount'] as num?)?.toDouble() ?? 0.0) == expAmount,
+          orElse: () => <String, dynamic>{},
+        );
+        if (match.isNotEmpty) payerName = match['userName'] as String? ?? '';
+        return _SplitExpenseHistoryCard(
+          expense: exp,
+          isAdmin: widget.isAdmin,
+          adminId: widget.adminId,
+          roomId: widget.roomId,
+          onDeleted: _load,
+          paidByName: payerName,
+        );
+      },
     );
   }
 }
@@ -730,6 +743,7 @@ class _SplitExpenseHistoryCard extends StatefulWidget {
   final String adminId;
   final String roomId;
   final VoidCallback? onDeleted;
+  final String? paidByName;
 
   const _SplitExpenseHistoryCard({
     required this.expense,
@@ -737,6 +751,7 @@ class _SplitExpenseHistoryCard extends StatefulWidget {
     this.adminId = '',
     this.roomId = '',
     this.onDeleted,
+    this.paidByName,
   });
 
   @override
@@ -808,6 +823,16 @@ class _SplitExpenseHistoryCardState extends State<_SplitExpenseHistoryCard> {
                             fontSize: 14,
                           ),
                         ),
+                        if ((widget.paidByName ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Paid by ${widget.paidByName}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 2),
                         Text(
                           '৳${perMember.toStringAsFixed(2)} × $memberCount members',

@@ -590,11 +590,12 @@ app.get('/rooms/:roomId/balance', async (req, res) => {
         .filter(r => r.user_id === m.id)
         .map(r => ({ id: r.id, amount: parseFloat(r.amount), note: r.note || '', createdAt: r.created_at, addedBy: r.added_by_name || '' }));
 
-      const totalCartExpense = cartExpenses.reduce((s, x) => s + x.amount, 0);
-      const totalSplitExpense = splitExpenses.reduce((s, x) => s + x.amount, 0);
-      const totalExpense = totalCartExpense + totalSplitExpense;
-      const totalDeposited = deposits.reduce((s, x) => s + x.amount, 0);
-      const balance = totalDeposited - totalExpense;
+      const round2 = v => Math.round(v * 100) / 100;
+      const totalCartExpense  = round2(cartExpenses.reduce((s, x) => s + x.amount, 0));
+      const totalSplitExpense = round2(splitExpenses.reduce((s, x) => s + x.amount, 0));
+      const totalExpense      = round2(totalCartExpense + totalSplitExpense);
+      const totalDeposited    = round2(deposits.reduce((s, x) => s + x.amount, 0));
+      const balance           = round2(totalDeposited - totalExpense);
 
       const displayName = m.left_at ? `${m.name} (left)` : m.name;
       return { userId: m.id, name: displayName, cartExpenses, splitExpenses, deposits,
